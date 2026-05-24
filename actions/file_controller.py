@@ -141,6 +141,12 @@ def create_file(path: str, name: str = "", content: str = "") -> str:
         target = (base / name) if name else base
         if not _is_safe_path(target):
             return f"Access denied: {target}"
+        # Guard: if target resolved to a directory, we'd corrupt it
+        if target.is_dir():
+            return (
+                f"Cannot write — '{target}' is a directory. "
+                "Provide a filename via the 'name' parameter."
+            )
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content, encoding="utf-8")
         return f"File created: {target.name}"
@@ -291,6 +297,11 @@ def write_file(path: str, name: str = "", content: str = "",
         target = (base / name) if name else base
         if not _is_safe_path(target):
             return f"Access denied: {target}"
+        if target.is_dir():
+            return (
+                f"Cannot write — '{target}' is a directory. "
+                "Provide a filename via the 'name' parameter."
+            )
         target.parent.mkdir(parents=True, exist_ok=True)
         mode = "a" if append else "w"
         with open(target, mode, encoding="utf-8") as f:
@@ -475,8 +486,20 @@ def file_controller(
 ) -> str:
     params = parameters or {}
     action = params.get("action", "").lower().strip()
-    path   = params.get("path", "desktop")
+
+    # Accept "file_path" as an alias for "path" (model sometimes uses it)
+    path = params.get("path") or params.get("file_path", "desktop")
+
     name   = params.get("name", "")
+
+    # If path looks like a full file path (has a suffix / is absolute with extension)
+    # and no separate name is given, split it into base dir + filename automatically.
+    _resolved_check = Path(path).expanduser()
+    if (not name
+            and _resolved_check.suffix          # has a file extension
+            and not _resolved_check.is_dir()):  # not an existing directory
+        name = _resolved_check.name
+        path = str(_resolved_check.parent)
 
     if player:
         player.write_log(f"[file] {action} {name or path}")
